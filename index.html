@@ -251,7 +251,7 @@ async function cargarTodo() {
       tipo: (f["Tipo"] || "").trim(),
       artistaTitulo: (f["Artista/Titulo"] || "").trim(),
       idioma: (f["Idioma"] || "").trim(),
-      categoria: (f["Categoria"] || "").trim().toUpperCase()
+      categoria: (f["CATEGORIA"] || f["Categoria"] || "").trim().toUpperCase()
     })).filter(c => c.artistaTitulo);
 
     if (respMapeo && respMapeo.ok) {
