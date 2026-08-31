@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Karaoke Party</title>
+<style>
+  :root { --bg:#111; --card:#1c1c1c; --accent:#ff3d6e; --text:#eee; --muted:#999; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  header { padding: 24px 16px; text-align:center; }
+  header h1 { margin:0 0 4px; font-size:1.8rem; }
+  header p { margin:0; color:var(--muted); }
+  nav { display:flex; flex-wrap:wrap; gap:10px; justify-content:center; padding:12px 16px; }
+  nav a {
+    background:var(--card); color:var(--text); text-decoration:none;
+    padding:8px 14px; border-radius:20px; font-size:0.9rem; border:1px solid #333;
+  }
+  nav a:hover { border-color: var(--accent); }
+  .search-wrap { padding: 12px 16px; max-width:600px; margin:0 auto; }
+  #buscador {
+    width:100%; padding:12px 16px; border-radius:12px; border:1px solid #333;
+    background:var(--card); color:var(--text); font-size:1rem;
+  }
+  #estado { text-align:center; color:var(--muted); padding:8px; font-size:0.9rem; }
+  #lista {
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(160px,1fr));
+    gap:14px; padding:16px; max-width:1000px; margin:0 auto;
+  }
+  .cancion {
+    background:var(--card); border-radius:12px; overflow:hidden; border:1px solid #262626;
+  }
+  .cancion img {
+    width:100%; aspect-ratio:1/1; object-fit:cover; display:block; background:#000;
+  }
+  .cancion .info { padding:8px 10px; }
+  .cancion .titulo { font-weight:600; font-size:0.9rem; }
+  .cancion .artista { color:var(--muted); font-size:0.8rem; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Karaoke Party</h1>
+  <p>CANTAR UNE LOS CORAZONES</p>
+</header>
+
+<nav>
+  <!-- Formulario de peticiones (Google Forms) -->
+  <a href="https://docs.google.com/forms/d/e/1FAIpQLScQ_J_FM6p9-1_INZMFJdtU5yuFMgauPFU9g65H2s_mIm9GKA/viewform" target="_blank" rel="noopener">Pedir Canción</a>
+  <!-- Buscador externo de referencia -->
+  <a href="https://kara.moe/" target="_blank" rel="noopener">Kara-moe</a>
+  <!-- OJO: enlace de SOLO LECTURA (pubhtml), nunca el de /edit -->
+  <a href="https://docs.google.com/spreadsheets/d/e/2PACX-1vT-xYuQ2krRaYf9uYburf4kkGNsD_RaOtFJ-OSGxOuniRFRpDtosSbd2M__b3iDquxfSFDtEXat5DUm/pubhtml?gid=556896925&single=true" target="_blank" rel="noopener">Ver Cola (solo lectura)</a>
+</nav>
+
+<div class="search-wrap">
+  <input id="buscador" type="text" placeholder="Buscar por título o artista...">
+</div>
+
+<div id="estado">Cargando canciones...</div>
+<div id="lista"></div>
+
+<script>
+/* ============ CONFIGURA ESTOS 3 VALORES ============ */
+// ID real de tu Google Sheet (lo ves en la URL: /spreadsheets/d/ESTE_ID/edit)
+const SHEET_ID = "1Mk8bEWzGt4gbt3t7FnbeDT4-ArI0L9tp1dyyQJU7IB8";
+// Nombre EXACTO de la pestaña que contiene los datos (como aparece abajo en la hoja)
+const TAB_NAME = "Lista";
+// URL de tu mapeo.json (subido junto a las imágenes en R2, o en un repo GitHub con jsDelivr)
+const MAPEO_URL = "https://pub-6eaebff955624e44818a31fa86131835.r2.dev/ultrastar-im-genes/mapeo.json";
+/* ===================================================== */
+
+const estadoEl = document.getElementById("estado");
+const listaEl = document.getElementById("lista");
+const buscadorEl = document.getElementById("buscador");
+
+let canciones = [];   // datos de la hoja
+let mapeoImagenes = {}; // clave "Artista - Titulo" -> url imagen
+
+function normalizar(txt) {
+  return (txt || "").toString().trim().toLowerCase();
+}
+
+// Limpia texto para comparar: sin tildes, minúsculas, sin (TV)/(full)/etc, sin símbolos sueltos
+function limpiar(txt) {
+  return (txt || "")
+    .toString()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // quita tildes
+    .toLowerCase()
+    .replace(/\(.*?\)/g, "")   // quita paréntesis tipo (TV), (full)
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+// Índice de imágenes ya "limpiadas" para buscar coincidencias por contención de texto
+let indiceImagenes = [];
+function construirIndiceImagenes() {
+  indiceImagenes = Object.values(mapeoImagenes)
+    .filter(e => e && e.url)
+    .map(e => ({
+      tituloLimpio: limpiar(e.titulo),
+      artistaLimpio: limpiar(e.artista),
+      url: e.url
+    }))
+    .filter(e => e.tituloLimpio.length > 2);
+}
+
+function buscarImagen(artistaTitulo) {
+  const texto = limpiar(artistaTitulo);
+  if (!texto) return null;
+  // Coincidencia: el título de la imagen aparece dentro del texto de la fila, o viceversa
+  let mejor = null;
+  for (const img of indiceImagenes) {
+    if (texto.includes(img.tituloLimpio) || img.tituloLimpio.includes(texto)) {
+      if (!mejor || img.tituloLimpio.length > mejor.tituloLimpio.length) mejor = img;
+    }
+  }
+  return mejor ? mejor.url : null;
+}
+
+function render(lista) {
+  listaEl.innerHTML = "";
+  if (lista.length === 0) {
+    estadoEl.textContent = "No se encontraron canciones.";
+    return;
+  }
+  estadoEl.textContent = `${lista.length} canciones`;
+
+  const frag = document.createDocumentFragment();
+  lista.forEach(c => {
+    const urlImg = buscarImagen(c.artistaTitulo);
+
+    const div = document.createElement("div");
+    div.className = "cancion";
+    div.innerHTML = `
+      <img src="${urlImg || ''}" alt="${c.artistaTitulo}"
+           onerror="this.onerror=null;this.src='https://placehold.co/300x300/1c1c1c/666?text=%E2%99%AA';">
+      <div class="info">
+        <div class="titulo">${c.artistaTitulo}</div>
+        <div class="artista">${c.serie}${c.tipo ? " · " + c.tipo : ""}</div>
+      </div>`;
+    frag.appendChild(div);
+  });
+  listaEl.appendChild(frag);
+}
+
+function filtrar(texto) {
+  const q = normalizar(texto);
+  if (!q) return canciones;
+  return canciones.filter(c =>
+    normalizar(c.artistaTitulo).includes(q) ||
+    normalizar(c.serie).includes(q) ||
+    normalizar(c.tipo).includes(q)
+  );
+}
+
+buscadorEl.addEventListener("input", () => {
+  render(filtrar(buscadorEl.value));
+});
+
+async function cargarTodo() {
+  try {
+    // 1) Datos de la hoja (vía proxy JSON, evita el pubhtml roto)
+    const urlHoja = `https://opensheet.elk.sh/${SHEET_ID}/${encodeURIComponent(TAB_NAME)}`;
+    const [respHoja, respMapeo] = await Promise.all([
+      fetch(urlHoja),
+      fetch(MAPEO_URL).catch(() => null) // si falla el mapeo, seguimos sin imágenes
+    ]);
+
+    if (!respHoja.ok) throw new Error("No se pudo leer la hoja de canciones");
+    const filas = await respHoja.json();
+
+    // Columnas reales de tu hoja: SERIE/PELICULA, Tipo, Artista/Titulo, Idioma
+    canciones = filas.map(f => ({
+      serie: (f["SERIE/PELICULA"] || "").trim(),
+      tipo: (f["Tipo"] || "").trim(),
+      artistaTitulo: (f["Artista/Titulo"] || "").trim(),
+      idioma: (f["Idioma"] || "").trim()
+    })).filter(c => c.artistaTitulo);
+
+    if (respMapeo && respMapeo.ok) {
+      mapeoImagenes = await respMapeo.json();
+      construirIndiceImagenes();
+    }
+
+    render(canciones);
+  } catch (err) {
+    estadoEl.textContent = "Error cargando canciones: " + err.message;
+    console.error(err);
+  }
+}
+
+cargarTodo();
+</script>
+
+</body>
+</html>
