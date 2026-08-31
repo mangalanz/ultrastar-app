@@ -5,30 +5,40 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Karaoke Party</title>
 <style>
-  :root { --bg:#111; --card:#1c1c1c; --accent:#ff3d6e; --text:#eee; --muted:#999; }
+  :root { --bg:#f7f7f7; --card:#ffffff; --accent:#ff3d6e; --text:#1a1a1a; --muted:#777; }
   * { box-sizing: border-box; }
   body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--text); }
 
-  /* Portada / banner de introducción */
+  /* Portada / banner de introducción a pantalla completa */
   .hero {
     position:relative;
-    min-height: 340px;
-    display:flex; align-items:center; justify-content:center;
+    height: 100vh;
+    display:flex; align-items:flex-end; justify-content:center;
     background-image:
-      linear-gradient(to bottom, rgba(0,0,0,0.35), rgba(17,17,17,1)),
+      linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.25) 60%, var(--bg) 100%),
       url("https://raw.githubusercontent.com/mangalanz/ultrastar-app/main/f7593c74-fc19-46d4-ad41-8941ab6bde6b.png");
     background-size: cover;
     background-position: center;
+    background-attachment: fixed;
     text-align:center;
-    padding: 24px 16px;
+    padding: 24px 16px 60px;
   }
   .hero-content h1 {
-    margin:0 0 6px; font-size: clamp(1.8rem, 5vw, 3rem);
-    text-shadow: 0 2px 12px rgba(0,0,0,0.6);
+    margin:0 0 6px; font-size: clamp(2rem, 6vw, 3.5rem); color:#fff;
+    text-shadow: 0 2px 14px rgba(0,0,0,0.7);
   }
   .hero-content p {
-    margin:0; color:#ddd; font-size:1rem; letter-spacing:0.5px;
-    text-shadow: 0 1px 6px rgba(0,0,0,0.6);
+    margin:0; color:#eee; font-size:1rem; letter-spacing:1px;
+    text-shadow: 0 1px 8px rgba(0,0,0,0.7);
+  }
+
+  /* Contenido: cajas blancas "integradas" sobre el fondo claro, subiendo un poco sobre el hero */
+  .contenido {
+    position:relative;
+    margin-top:-40px;
+    background:var(--bg);
+    border-radius:24px 24px 0 0;
+    padding-top: 20px;
   }
 
   header { padding: 8px 16px 0; text-align:center; }
@@ -37,12 +47,13 @@
   nav { display:flex; flex-wrap:wrap; gap:10px; justify-content:center; padding:12px 16px; }
   nav a {
     background:var(--card); color:var(--text); text-decoration:none;
-    padding:8px 14px; border-radius:20px; font-size:0.9rem; border:1px solid #333;
+    padding:8px 14px; border-radius:20px; font-size:0.9rem; border:1px solid #ddd;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
   }
   nav a:hover { border-color: var(--accent); }
   .search-wrap { padding: 12px 16px; max-width:600px; margin:0 auto; }
   #buscador {
-    width:100%; padding:12px 16px; border-radius:12px; border:1px solid #333;
+    width:100%; padding:12px 16px; border-radius:12px; border:1px solid #ddd;
     background:var(--card); color:var(--text); font-size:1rem;
   }
   #estado { text-align:center; color:var(--muted); padding:8px; font-size:0.9rem; }
@@ -51,10 +62,11 @@
     gap:14px; padding:16px; max-width:1000px; margin:0 auto;
   }
   .cancion {
-    background:var(--card); border-radius:12px; overflow:hidden; border:1px solid #262626;
+    background:var(--card); border-radius:12px; overflow:hidden; border:1px solid #eee;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.06);
   }
   .cancion img {
-    width:100%; aspect-ratio:1/1; object-fit:cover; display:block; background:#000;
+    width:100%; aspect-ratio:1/1; object-fit:cover; display:block; background:#eee;
   }
   .cancion .info { padding:8px 10px; }
   .cancion .titulo { font-weight:600; font-size:0.9rem; }
@@ -70,6 +82,8 @@
   </div>
 </div>
 
+<div class="contenido">
+
 <header>
   <p style="color:var(--muted); margin:0;">KARAOKEROS EN ACCIÓN</p>
 </header>
@@ -77,7 +91,6 @@
 <nav>
   <!-- Formulario de peticiones (Google Forms) — acción principal -->
   <a href="https://docs.google.com/forms/d/e/1FAIpQLScQ_J_FM6p9-1_INZMFJdtU5yuFMgauPFU9g65H2s_mIm9GKA/viewform" target="_blank" rel="noopener">Pedir Canción</a>
-  <a href="https://kara.moe/" target="_blank" rel="noopener">¿No la encuentras? Busca en Kara-moe</a>
 </nav>
 
 <div class="search-wrap">
@@ -101,6 +114,8 @@
     Buscar en Kara-moe →
   </a>
 </section>
+
+</div><!-- /.contenido -->
 
 <script>
 /* ============ CONFIGURA ESTOS 3 VALORES ============ */
@@ -177,7 +192,7 @@ function render(lista) {
     div.className = "cancion";
     div.innerHTML = `
       <img src="${urlImg || ''}" alt="${c.artistaTitulo}"
-           onerror="this.onerror=null;this.src='https://placehold.co/300x300/1c1c1c/666?text=%E2%99%AA';">
+           onerror="this.onerror=null;this.src='https://placehold.co/300x300/eeeeee/999?text=%E2%99%AA';">
       <div class="info">
         <div class="titulo">${c.artistaTitulo}</div>
         <div class="artista">${c.serie}${c.tipo ? " · " + c.tipo : ""}</div>
