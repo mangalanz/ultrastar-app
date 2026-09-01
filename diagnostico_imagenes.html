@@ -18,7 +18,7 @@ th{position:sticky;top:0;background:#eee}
 </head>
 <body>
 <h1>Diagnóstico real de carátulas</h1>
-<p>Este diagnóstico usa la misma lógica de selección de imágenes de la aplicación actual, pero además comprueba si la URL seleccionada puede cargar físicamente en el navegador.</p>
+<p>Compara cada fila de tu hoja contra el mapeo de imágenes usando la misma lógica de coincidencia de la app, y comprueba si la imagen resultante carga de verdad en el navegador.</p>
 <button id="start">Iniciar diagnóstico</button>
 <button id="csv" disabled>Descargar CSV</button>
 <div id="estado"></div>
@@ -29,6 +29,8 @@ th{position:sticky;top:0;background:#eee}
 <script>
 const SHEET_URL="https://opensheet.elk.sh/1Mk8bEWzGt4gbt3t7FnbeDT4-ArI0L9tp1dyyQJU7IB8/Lista";
 const MAP_URL="https://pub-6eaebff955624e44818a31fa86131835.r2.dev/ultrastar-im-genes/mapeo.json";
+// Carpeta base donde están las imágenes en R2 (misma carpeta que mapeo.json)
+const IMG_BASE_URL = MAP_URL.substring(0, MAP_URL.lastIndexOf("/"));
 
 function limpiar(txt){
   return (txt||"").toString()
@@ -43,16 +45,11 @@ let resultados=[];
 
 function buscarImagen(entrada, indice){
   const texto=limpiar(entrada);
-  const sin=texto.replace(/\s+/g,"");
   if(!texto) return {url:null,entry:null,count:0,reason:"ENTRADA_VACIA"};
 
   const matches=[];
   for(const img of indice){
-    const ts=img.tituloLimpio.replace(/\s+/g,"");
-    if(texto.includes(img.tituloLimpio) ||
-       img.tituloLimpio.includes(texto) ||
-       sin.includes(ts) ||
-       ts.includes(sin)){
+    if(texto.includes(img.tituloLimpio) || img.tituloLimpio.includes(texto)){
       matches.push(img);
     }
   }
@@ -86,19 +83,19 @@ document.getElementById("start").onclick=async()=>{
   const sheet=await sheetRes.json();
   const map=await mapRes.json();
 
+  // CORREGIDO: construye la URL a partir de 'imagen', no de un campo 'url' que no existe
   const indice=Object.values(map).filter(e=>e&&e.imagen).map(e=>({
     tituloLimpio:limpiar(e.titulo),
     artista:e.artista||"",
     titulo:e.titulo||"",
     imagen:e.imagen||"",
-    url:e.url||"",
+    url:`${IMG_BASE_URL}/${encodeURIComponent(e.imagen)}`,
   })).filter(e=>e.tituloLimpio.length>2);
 
   resultados=[];
   const total=sheet.length;
   let done=0;
 
-  // Se comprueban en tandas para no saturar el navegador.
   const batchSize=20;
   for(let i=0;i<total;i+=batchSize){
     const batch=sheet.slice(i,i+batchSize);
