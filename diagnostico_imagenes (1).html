@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Diagnóstico real de carátulas UltraStar</title>
+<style>
+body{font-family:Arial,sans-serif;max-width:1200px;margin:30px auto;padding:0 20px;background:#f5f5f5;color:#222}
+button{padding:12px 18px;font-size:16px;cursor:pointer}
+#estado{margin:15px 0;font-weight:bold}
+table{border-collapse:collapse;width:100%;background:#fff;font-size:13px}
+th,td{border:1px solid #ddd;padding:6px;text-align:left;vertical-align:top}
+th{position:sticky;top:0;background:#eee}
+.ok{background:#e8f5e9}.bad{background:#ffebee}.warn{background:#fff8e1}
+.small{font-size:12px;color:#666}
+.progress{height:18px;background:#ddd;margin:10px 0}.bar{height:100%;width:0;background:#4caf50}
+</style>
+</head>
+<body>
+<h1>Diagnóstico real de carátulas</h1>
+<p>Compara cada fila de tu hoja contra el mapeo de imágenes usando la misma lógica de coincidencia de la app, y comprueba si la imagen resultante carga de verdad en el navegador.</p>
+<button id="start">Iniciar diagnóstico</button>
+<button id="csv" disabled>Descargar CSV</button>
+<div id="estado"></div>
+<div class="progress"><div class="bar" id="bar"></div></div>
+<div id="resumen"></div>
+<div id="tabla"></div>
+
+<script>
+const SHEET_URL="https://opensheet.elk.sh/1Mk8bEWzGt4gbt3t7FnbeDT4-ArI0L9tp1dyyQJU7IB8/Lista";
+const MAP_URL="https://pub-6eaebff955624e44818a31fa86131835.r2.dev/ultrastar-im-genes/mapeo.json";
+// Carpeta base donde están las imágenes en R2 (misma carpeta que mapeo.json)
+const IMG_BASE_URL = MAP_URL.substring(0, MAP_URL.lastIndexOf("/"));
+
+function limpiar(txt){
+  return (txt||"").toString()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .toLowerCase()
+    .replace(/\(.*?\)/g,"")
+    .replace(/[^a-z0-9]+/g,"")
+    .trim();
+}
+
+let resultados=[];
+
+function buscarImagen(entrada, indice){
+  const texto=limpiar(entrada);
+  if(!texto) return {url:null,entry:null,count:0,reason:"ENTRADA_VACIA"};
+
+  const matches=[];
+  for(const img of indice){
+    if(texto.includes(img.tituloLimpio) || img.tituloLimpio.includes(texto)){
+      matches.push(img);
+    }
+  }
+  if(!matches.length) return {url:null,entry:null,count:0,reason:"SIN_COINCIDENCIA"};
+  matches.sort((a,b)=>b.tituloLimpio.length-a.tituloLimpio.length);
+  return {url:matches[0].url,entry:matches[0],count:matches.length,reason:"OK"};
+}
+
+function csvEscape(v){
+  return '"'+String(v??"").replace(/"/g,'""')+'"';
+}
+
+async function checkImage(url){
+  if(!url) return "SIN_URL";
+  return await new Promise(resolve=>{
+    const img=new Image();
+    let done=false;
+    const finish=s=>{if(done)return;done=true;resolve(s)};
+    img.onload=()=>finish("IMAGEN_OK");
+    img.onerror=()=>finish("IMAGEN_ERROR");
+    setTimeout(()=>finish("TIMEOUT"),12000);
+    img.src=url;
+  });
+}
+
+document.getElementById("start").onclick=async()=>{
+  const start=document.getElementById("start");
+  start.disabled=true;
+  document.getElementById("estado").textContent="Cargando hoja y mapeo...";
+  const [sheetRes,mapRes]=await Promise.all([fetch(SHEET_URL),fetch(MAP_URL)]);
+  const sheet=await sheetRes.json();
+  const map=await mapRes.json();
+
+  // CORREGIDO: construye la URL a partir de 'imagen', no de un campo 'url' que no existe
+  const indice=Object.values(map).filter(e=>e&&e.imagen).map(e=>({
+    tituloLimpio:limpiar(e.titulo),
+    artista:e.artista||"",
+    titulo:e.titulo||"",
+    imagen:e.imagen||"",
+    url:`${IMG_BASE_URL}/${encodeURIComponent(e.imagen)}`,
+  })).filter(e=>e.tituloLimpio.length>2);
+
+  resultados=[];
+  const total=sheet.length;
+  let done=0;
+
+  const batchSize=20;
+  for(let i=0;i<total;i+=batchSize){
+    const batch=sheet.slice(i,i+batchSize);
+    const out=await Promise.all(batch.map(async row=>{
+      const entrada=(row["Artista/Titulo"]||"").toString().trim();
+      const found=buscarImagen(entrada,indice);
+      const carga=await checkImage(found.url);
+      return {
+        fila:sheet.indexOf(row)+1,
+        entrada,
+        estado:carga,
+        coincidencias:found.count,
+        artista:found.entry?.artista||"",
+        titulo:found.entry?.titulo||"",
+        imagen:found.entry?.imagen||"",
+        url:found.url||"",
+        motivo:found.reason
+      };
+    }));
+    resultados.push(...out);
+    done+=batch.length;
+    document.getElementById("bar").style.width=(done/total*100)+"%";
+    // Muestra las últimas canciones comprobadas en este lote, con su resultado
+    const ultimasLineas = out.slice(-5).map(r =>
+      `${r.estado==="IMAGEN_OK" ? "✅" : "❌"} ${esc(r.entrada)} <span class="small">(${r.estado})</span>`
+    ).join("<br>");
+    document.getElementById("estado").innerHTML=
+      `Comprobadas ${done} de ${total} canciones...<br><span class="small" style="font-weight:normal">${ultimasLineas}</span>`;
+  }
+
+  const counts={};
+  for(const r of resultados) counts[r.estado]=(counts[r.estado]||0)+1;
+  const noImg=resultados.filter(r=>r.estado!=="IMAGEN_OK");
+
+  document.getElementById("estado").textContent="Diagnóstico terminado.";
+  document.getElementById("resumen").innerHTML=
+    `<p><b>Total:</b> ${total} · <b>Imágenes OK:</b> ${counts.IMAGEN_OK||0} · `+
+    `<b>Imagen error:</b> ${counts.IMAGEN_ERROR||0} · <b>Sin coincidencia:</b> ${counts.SIN_URL||0} · `+
+    `<b>Timeout:</b> ${counts.TIMEOUT||0}</p>`+
+    `<p class="small">Las coincidencias múltiples no se consideran automáticamente error: se muestra cuántas encontró la lógica actual para poder revisar casos como Signal, Hikari, etc.</p>`;
+
+  let h="<table><thead><tr><th>Fila</th><th>Entrada</th><th>Estado</th><th>Coincidencias</th><th>Mapeo</th><th>Imagen</th></tr></thead><tbody>";
+  for(const r of noImg){
+    h+=`<tr class="${r.estado==="IMAGEN_OK"?"ok":"bad"}"><td>${r.fila}</td><td>${esc(r.entrada)}</td><td>${r.estado}</td><td>${r.coincidencias}</td><td>${esc(r.artista+" - "+r.titulo)}</td><td>${esc(r.imagen)}</td></tr>`;
+  }
+  h+="</tbody></table>";
+  document.getElementById("tabla").innerHTML=noImg.length?h:"<p class='ok'>No se han detectado imágenes con error.</p>";
+  document.getElementById("csv").disabled=false;
+};
+
+function esc(s){return String(s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));}
+
+document.getElementById("csv").onclick=()=>{
+  const head=["fila","entrada","estado","coincidencias","artista","titulo","imagen","url","motivo"];
+  const lines=[head.join(",")];
+  for(const r of resultados) lines.push(head.map(k=>csvEscape(r[k])).join(","));
+  const blob=new Blob(["\ufeff"+lines.join("\n")],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="diagnostico_caraturas_real.csv";
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+};
+</script>
+</body>
+</html>
