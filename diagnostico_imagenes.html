@@ -1,0 +1,46 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Diagnóstico de carátulas UltraStar</title><style>body{font-family:Arial,sans-serif;margin:24px;background:#f5f5f5}button{padding:10px 16px;font-size:16px}#res{white-space:pre-wrap;background:#fff;padding:16px;margin-top:16px;border-radius:8px}.ok{color:green}.bad{color:#b00020}.warn{color:#9a6700}table{border-collapse:collapse;width:100%;background:#fff}td,th{border:1px solid #ddd;padding:6px;text-align:left;font-size:13px}th{position:sticky;top:0;background:#eee}.small{font-size:12px;color:#666}</style></head><body>
+<h1>Diagnóstico de carátulas UltraStar</h1>
+<p>Comprueba la hoja Lista contra <code>mapeo.json</code>, respetando <b>TV/FULL/PV/VIDEO</b> y probando la URL real de cada imagen.</p>
+<button id="run">Iniciar diagnóstico</button> <button id="csv" disabled>Descargar CSV</button>
+<div id="res">Esperando…</div><div id="table"></div>
+<script>
+const SHEET='https://opensheet.elk.sh/1Mk8bEWzGt4gbt3t7FnbeDT4-ArI0L9tp1dyyQJU7IB8/Lista';
+const MAP='https://pub-6eaebff955624e44818a31fa86131835.r2.dev/ultrastar-im-genes/mapeo.json';
+let rows=[];
+function norm(s){return String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\uFFFD/g,'').replace(/[‐‑‒–—−]/g,'-').replace(/\s+/g,' ').trim().replace(/\s*-\s*/g,'-').replace(/\.-/g,'-');}
+function splitAT(s){s=String(s??'').trim();let m=s.match(/^\s*(.*?)\s*-\s*(.*?)\s*$/);if(!m)return {a:'',t:norm(s)};return {a:norm(m[1]),t:norm(m[2])};}
+function key(a,t){return norm(a)+'|'+norm(t)}
+async function imageOK(url){return new Promise(resolve=>{let im=new Image();let done=false;let timer=setTimeout(()=>{if(!done){done=true;resolve(false)}},10000);im.onload=()=>{if(!done){done=true;clearTimeout(timer);resolve(true)}};im.onerror=()=>{if(!done){done=true;clearTimeout(timer);resolve(false)}};im.src=url+(url.includes('?')?'&':'?')+'diag='+Date.now();});}
+async function run(){
+ const out=document.getElementById('res');out.textContent='Cargando hoja y mapeo…';
+ try{
+  const [sr,mr]=await Promise.all([fetch(SHEET),fetch(MAP)]); if(!sr.ok||!mr.ok) throw new Error('HTTP hoja='+sr.status+' mapeo='+mr.status);
+  const sheet=await sr.json(), map=await mr.json();
+  const entries=Object.values(map); const exact=new Map();
+  for(const e of entries){const k=key(e.artista,e.titulo);if(!exact.has(k))exact.set(k,[]);exact.get(k).push(e)}
+  const results=[];
+  for(let i=0;i<sheet.length;i++){
+   const raw=sheet[i]['Artista/Titulo']??''; const p=splitAT(raw); let cand=exact.get(key(p.a,p.t))||[]; let status='OK', e=null;
+   if(cand.length===1)e=cand[0];
+   else if(cand.length>1){status='DUPLICADO';e=cand[0]}
+   else {
+     // fallback: normalized complete text against map's complete text, preserving qualifiers
+     const q=norm(raw).replace(/\.-/g,'-'); const hits=entries.filter(x=>norm((x.artista||'')+' - '+(x.titulo||''))===q);
+     if(hits.length===1){e=hits[0];status='NORMALIZADO'} else if(hits.length>1){e=hits[0];status='DUPLICADO_NORMALIZADO'} else status='SIN_MAPEO';
+   }
+   let img='';
+   if(e){img=e.url||''; if(img){const ok=await imageOK(img);if(!ok)status=status==='OK'?'URL_FALLA':status+'_URL_FALLA'}else status='SIN_URL'}
+   results.push({fila:i+1,entrada:raw,status,imagen:e?.imagen||'',url:img});
+   if((i+1)%25===0){out.textContent=`Procesando ${i+1}/${sheet.length}…`;}
+  }
+  rows=results; const counts={};for(const r of rows)counts[r.status]=(counts[r.status]||0)+1;
+  out.innerHTML='<b>Diagnóstico terminado</b>\n\n'+Object.entries(counts).map(([k,v])=>k+': '+v).join('\n');
+  document.getElementById('csv').disabled=false;
+  const bad=rows.filter(r=>r.status!=='OK');
+  document.getElementById('table').innerHTML='<h2>Casos a revisar: '+bad.length+'</h2><table><thead><tr><th>Fila</th><th>Artista/Título</th><th>Estado</th><th>Imagen</th></tr></thead><tbody>'+bad.map(r=>`<tr><td>${r.fila}</td><td>${esc(r.entrada)}</td><td>${esc(r.status)}</td><td>${esc(r.imagen)}</td></tr>`).join('')+'</tbody></table>';
+ }catch(e){out.textContent='ERROR: '+e.message+'\n\nSi el navegador bloquea la lectura local, sube temporalmente este HTML a GitHub Pages o abrelo desde el mismo dominio de la app.';}
+}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+document.getElementById('run').onclick=run;
+document.getElementById('csv').onclick=()=>{const h='fila,entrada,estado,imagen,url\n';const q=s=>`"${String(s??'').replace(/"/g,'""')}"`;const csv=h+rows.map(r=>[r.fila,r.entrada,r.status,r.imagen,r.url].map(q).join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download='diagnostico_carátulas.csv';a.click()};
+</script></body></html>
