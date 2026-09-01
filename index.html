@@ -125,6 +125,10 @@ const SHEET_ID = "1Mk8bEWzGt4gbt3t7FnbeDT4-ArI0L9tp1dyyQJU7IB8";
 const TAB_NAME = "Lista";
 // URL de tu mapeo.json (subido junto a las imágenes en R2, o en un repo GitHub con jsDelivr)
 const MAPEO_URL = "https://pub-6eaebff955624e44818a31fa86131835.r2.dev/ultrastar-im-genes/mapeo.json";
+// Carpeta base donde están las imágenes en R2 (mismo lugar que mapeo.json).
+// Cada entrada del mapeo solo trae el NOMBRE del archivo en "imagen",
+// así que la URL final se construye como IMG_BASE + nombre-del-archivo-codificado.
+const IMG_BASE = "https://pub-6eaebff955624e44818a31fa86131835.r2.dev/ultrastar-im-genes/";
 /* ===================================================== */
 
 const estadoEl = document.getElementById("estado");
@@ -156,14 +160,16 @@ function limpiar(txt) {
 let indiceImagenes = [];
 function construirIndiceImagenes() {
   indiceImagenes = Object.values(mapeoImagenes)
-    .filter(e => e && e.url)
+    .filter(e => e && e.imagen)
     .map(e => {
       const tituloLimpio = limpiar(e.titulo);
       return {
         tituloLimpio,
         tituloSinEspacios: tituloLimpio.replace(/\s+/g, ""),
         artistaLimpio: limpiar(e.artista),
-        url: e.url
+        // Construimos la URL real a partir del nombre de archivo,
+        // codificando espacios y símbolos especiales (á, ñ, ~, etc.)
+        url: IMG_BASE + encodeURIComponent(e.imagen)
       };
     })
     .filter(e => e.tituloLimpio.length > 2);
