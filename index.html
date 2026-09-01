@@ -126,8 +126,7 @@ const TAB_NAME = "Lista";
 // URL de tu mapeo.json (subido junto a las imágenes en R2, o en un repo GitHub con jsDelivr)
 const MAPEO_URL = "https://pub-6eaebff955624e44818a31fa86131835.r2.dev/ultrastar-im-genes/mapeo.json";
 // Carpeta base donde están las imágenes en R2 (mismo lugar que mapeo.json).
-// Cada entrada del mapeo solo trae el NOMBRE del archivo en "imagen",
-// así que la URL final se construye como IMG_BASE + nombre-del-archivo-codificado.
+// Se mantiene como respaldo, aunque el mapeo.json ya proporciona la URL exacta.
 const IMG_BASE = "https://pub-6eaebff955624e44818a31fa86131835.r2.dev/ultrastar-im-genes/";
 /* ===================================================== */
 
@@ -143,53 +142,103 @@ function normalizar(txt) {
   return (txt || "").toString().trim().toLowerCase();
 }
 
-// Limpia texto para comparar: sin tildes, minúsculas, sin (TV)/(full)/etc, sin ningún separador
-// (se eliminan espacios/guiones/símbolos por completo, no se sustituyen por espacio,
-// así "Te-ze" y "Teze" se consideran iguales al comparar)
-function limpiar(txt) {
+// Normalización para IDENTIFICAR una canción.
+// IMPORTANTE: conserva (TV), (FULL), [TV], [FULL], etc., porque pueden
+// representar canciones distintas y tener portadas diferentes.
+// Solo elimina diferencias de tildes, mayúsculas, espacios y separadores.
+function claveCancion(txt) {
   return (txt || "")
     .toString()
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // quita tildes
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .replace(/\(.*?\)/g, "")   // quita paréntesis tipo (TV), (full)
-    .replace(/[^a-z0-9]+/g, "")
+    // Las variantes entre paréntesis/corchetes se conservan.
+    .replace(/[^a-z0-9()\[\]]+/g, "")
     .trim();
 }
 
-// Índice de imágenes ya "limpiadas" para buscar coincidencias por contención de texto
-let indiceImagenes = [];
+// Índice de imágenes por ARTISTA + TÍTULO.
+// Esto evita confundir canciones que comparten título (por ejemplo,
+// Signal, Signal (TV) y Signal (FULL)).
+let indiceImagenes = new Map();
+let indiceTitulos = new Map();
+
 function construirIndiceImagenes() {
-  indiceImagenes = Object.values(mapeoImagenes)
-    .filter(e => e && e.imagen)
-    .map(e => {
-      const tituloLimpio = limpiar(e.titulo);
-      return {
-        tituloLimpio,
-        tituloSinEspacios: tituloLimpio.replace(/\s+/g, ""),
-        artistaLimpio: limpiar(e.artista),
-        // Construimos la URL real a partir del nombre de archivo,
-        // codificando espacios y símbolos especiales (á, ñ, ~, etc.)
-        url: IMG_BASE + encodeURIComponent(e.imagen)
-      };
-    })
-    .filter(e => e.tituloLimpio.length > 2);
+  indiceImagenes = new Map();
+  indiceTitulos = new Map();
+
+  Object.values(mapeoImagenes)
+    .filter(e => e && e.imagen && e.artista && e.titulo)
+    .forEach(e => {
+      const artista = claveCancion(e.artista);
+      const titulo = claveCancion(e.titulo);
+      if (!artista || !titulo) return;
+
+      const clave = artista + "|" + titulo;
+
+      // Usamos la URL que ya generó el script Python en mapeo.json.
+      const url = e.url || (IMG_BASE + encodeURIComponent(e.imagen));
+
+      // Si hubiera entradas duplicadas para la misma combinación,
+      // conservamos la primera y no sobrescribimos silenciosamente.
+      if (!indiceImagenes.has(clave)) {
+        indiceImagenes.set(clave, {
+          artista,
+          titulo,
+          url,
+          imagen: e.imagen
+        });
+      }
+
+      // Índice secundario por título. Puede haber varias canciones con
+      // el mismo título, por lo que guardamos TODAS las candidatas.
+      if (!indiceTitulos.has(titulo)) indiceTitulos.set(titulo, []);
+      indiceTitulos.get(titulo).push({
+        artista,
+        titulo,
+        url,
+        imagen: e.imagen
+      });
+    });
 }
 
 function buscarImagen(artistaTitulo) {
-  const texto = limpiar(artistaTitulo);
-  const textoSinEspacios = texto.replace(/\s+/g, "");
-  if (!texto) return null;
-  // Coincidencia: el título de la imagen aparece dentro del texto de la fila (con o sin espacios), o viceversa
-  let mejor = null;
-  for (const img of indiceImagenes) {
-    const coincide =
-      texto.includes(img.tituloLimpio) || img.tituloLimpio.includes(texto) ||
-      textoSinEspacios.includes(img.tituloSinEspacios) || img.tituloSinEspacios.includes(textoSinEspacios);
-    if (coincide) {
-      if (!mejor || img.tituloLimpio.length > mejor.tituloLimpio.length) mejor = img;
+  const textoOriginal = (artistaTitulo || "").toString().trim();
+  if (!textoOriginal) return null;
+
+  // 1) Coincidencia directa contra la clave completa del mapeo.json.
+  // Se normalizan únicamente separadores/espacios, manteniendo (TV)/(FULL).
+  const textoClave = claveCancion(textoOriginal);
+
+  // La hoja normalmente usa "Artista - Título". Para evitar depender
+  // del formato exacto del separador, comparamos contra todas las entradas
+  // mediante artista+título.
+  for (const [clave, img] of indiceImagenes) {
+    if (clave.replace("|", "") === textoClave) {
+      return img.url;
     }
   }
-  return mejor ? mejor.url : null;
+
+  // 2) Fallback controlado: separar "Artista - Título" de la hoja y buscar
+  // artista+título exactos. El separador puede venir como "-", ".-", etc.
+  // Buscamos el primer separador de guion rodeado por texto.
+  const partes = textoOriginal.split(/\s*[.-]?\-\s*/);
+  if (partes.length >= 2) {
+    const artistaHoja = claveCancion(partes[0]);
+    const tituloHoja = claveCancion(partes.slice(1).join("-"));
+    const clave = artistaHoja + "|" + tituloHoja;
+    const exacta = indiceImagenes.get(clave);
+    if (exacta) return exacta.url;
+  }
+
+  // 3) Último recurso: título exacto, pero SOLO si hay una única candidata.
+  // Nunca elegimos arbitrariamente entre varias canciones con el mismo título.
+  const candidatas = indiceTitulos.get(textoClave);
+  if (candidatas && candidatas.length === 1) {
+    return candidatas[0].url;
+  }
+
+  return null;
 }
 
 function render(lista) {
