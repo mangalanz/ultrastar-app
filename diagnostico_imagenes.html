@@ -1,46 +1,162 @@
-<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Diagnóstico de carátulas UltraStar</title><style>body{font-family:Arial,sans-serif;margin:24px;background:#f5f5f5}button{padding:10px 16px;font-size:16px}#res{white-space:pre-wrap;background:#fff;padding:16px;margin-top:16px;border-radius:8px}.ok{color:green}.bad{color:#b00020}.warn{color:#9a6700}table{border-collapse:collapse;width:100%;background:#fff}td,th{border:1px solid #ddd;padding:6px;text-align:left;font-size:13px}th{position:sticky;top:0;background:#eee}.small{font-size:12px;color:#666}</style></head><body>
-<h1>Diagnóstico de carátulas UltraStar</h1>
-<p>Comprueba la hoja Lista contra <code>mapeo.json</code>, respetando <b>TV/FULL/PV/VIDEO</b> y probando la URL real de cada imagen.</p>
-<button id="run">Iniciar diagnóstico</button> <button id="csv" disabled>Descargar CSV</button>
-<div id="res">Esperando…</div><div id="table"></div>
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Diagnóstico real de carátulas UltraStar</title>
+<style>
+body{font-family:Arial,sans-serif;max-width:1200px;margin:30px auto;padding:0 20px;background:#f5f5f5;color:#222}
+button{padding:12px 18px;font-size:16px;cursor:pointer}
+#estado{margin:15px 0;font-weight:bold}
+table{border-collapse:collapse;width:100%;background:#fff;font-size:13px}
+th,td{border:1px solid #ddd;padding:6px;text-align:left;vertical-align:top}
+th{position:sticky;top:0;background:#eee}
+.ok{background:#e8f5e9}.bad{background:#ffebee}.warn{background:#fff8e1}
+.small{font-size:12px;color:#666}
+.progress{height:18px;background:#ddd;margin:10px 0}.bar{height:100%;width:0;background:#4caf50}
+</style>
+</head>
+<body>
+<h1>Diagnóstico real de carátulas</h1>
+<p>Este diagnóstico usa la misma lógica de selección de imágenes de la aplicación actual, pero además comprueba si la URL seleccionada puede cargar físicamente en el navegador.</p>
+<button id="start">Iniciar diagnóstico</button>
+<button id="csv" disabled>Descargar CSV</button>
+<div id="estado"></div>
+<div class="progress"><div class="bar" id="bar"></div></div>
+<div id="resumen"></div>
+<div id="tabla"></div>
+
 <script>
-const SHEET='https://opensheet.elk.sh/1Mk8bEWzGt4gbt3t7FnbeDT4-ArI0L9tp1dyyQJU7IB8/Lista';
-const MAP='https://pub-6eaebff955624e44818a31fa86131835.r2.dev/ultrastar-im-genes/mapeo.json';
-let rows=[];
-function norm(s){return String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\uFFFD/g,'').replace(/[‐‑‒–—−]/g,'-').replace(/\s+/g,' ').trim().replace(/\s*-\s*/g,'-').replace(/\.-/g,'-');}
-function splitAT(s){s=String(s??'').trim();let m=s.match(/^\s*(.*?)\s*-\s*(.*?)\s*$/);if(!m)return {a:'',t:norm(s)};return {a:norm(m[1]),t:norm(m[2])};}
-function key(a,t){return norm(a)+'|'+norm(t)}
-async function imageOK(url){return new Promise(resolve=>{let im=new Image();let done=false;let timer=setTimeout(()=>{if(!done){done=true;resolve(false)}},10000);im.onload=()=>{if(!done){done=true;clearTimeout(timer);resolve(true)}};im.onerror=()=>{if(!done){done=true;clearTimeout(timer);resolve(false)}};im.src=url+(url.includes('?')?'&':'?')+'diag='+Date.now();});}
-async function run(){
- const out=document.getElementById('res');out.textContent='Cargando hoja y mapeo…';
- try{
-  const [sr,mr]=await Promise.all([fetch(SHEET),fetch(MAP)]); if(!sr.ok||!mr.ok) throw new Error('HTTP hoja='+sr.status+' mapeo='+mr.status);
-  const sheet=await sr.json(), map=await mr.json();
-  const entries=Object.values(map); const exact=new Map();
-  for(const e of entries){const k=key(e.artista,e.titulo);if(!exact.has(k))exact.set(k,[]);exact.get(k).push(e)}
-  const results=[];
-  for(let i=0;i<sheet.length;i++){
-   const raw=sheet[i]['Artista/Titulo']??''; const p=splitAT(raw); let cand=exact.get(key(p.a,p.t))||[]; let status='OK', e=null;
-   if(cand.length===1)e=cand[0];
-   else if(cand.length>1){status='DUPLICADO';e=cand[0]}
-   else {
-     // fallback: normalized complete text against map's complete text, preserving qualifiers
-     const q=norm(raw).replace(/\.-/g,'-'); const hits=entries.filter(x=>norm((x.artista||'')+' - '+(x.titulo||''))===q);
-     if(hits.length===1){e=hits[0];status='NORMALIZADO'} else if(hits.length>1){e=hits[0];status='DUPLICADO_NORMALIZADO'} else status='SIN_MAPEO';
-   }
-   let img='';
-   if(e){img=e.url||''; if(img){const ok=await imageOK(img);if(!ok)status=status==='OK'?'URL_FALLA':status+'_URL_FALLA'}else status='SIN_URL'}
-   results.push({fila:i+1,entrada:raw,status,imagen:e?.imagen||'',url:img});
-   if((i+1)%25===0){out.textContent=`Procesando ${i+1}/${sheet.length}…`;}
-  }
-  rows=results; const counts={};for(const r of rows)counts[r.status]=(counts[r.status]||0)+1;
-  out.innerHTML='<b>Diagnóstico terminado</b>\n\n'+Object.entries(counts).map(([k,v])=>k+': '+v).join('\n');
-  document.getElementById('csv').disabled=false;
-  const bad=rows.filter(r=>r.status!=='OK');
-  document.getElementById('table').innerHTML='<h2>Casos a revisar: '+bad.length+'</h2><table><thead><tr><th>Fila</th><th>Artista/Título</th><th>Estado</th><th>Imagen</th></tr></thead><tbody>'+bad.map(r=>`<tr><td>${r.fila}</td><td>${esc(r.entrada)}</td><td>${esc(r.status)}</td><td>${esc(r.imagen)}</td></tr>`).join('')+'</tbody></table>';
- }catch(e){out.textContent='ERROR: '+e.message+'\n\nSi el navegador bloquea la lectura local, sube temporalmente este HTML a GitHub Pages o abrelo desde el mismo dominio de la app.';}
+const SHEET_URL="https://opensheet.elk.sh/1Mk8bEWzGt4gbt3t7FnbeDT4-ArI0L9tp1dyyQJU7IB8/Lista";
+const MAP_URL="https://pub-6eaebff955624e44818a31fa86131835.r2.dev/ultrastar-im-genes/mapeo.json";
+
+function limpiar(txt){
+  return (txt||"").toString()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .toLowerCase()
+    .replace(/\(.*?\)/g,"")
+    .replace(/[^a-z0-9]+/g,"")
+    .trim();
 }
-function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-document.getElementById('run').onclick=run;
-document.getElementById('csv').onclick=()=>{const h='fila,entrada,estado,imagen,url\n';const q=s=>`"${String(s??'').replace(/"/g,'""')}"`;const csv=h+rows.map(r=>[r.fila,r.entrada,r.status,r.imagen,r.url].map(q).join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download='diagnostico_carátulas.csv';a.click()};
-</script></body></html>
+
+let resultados=[];
+
+function buscarImagen(entrada, indice){
+  const texto=limpiar(entrada);
+  const sin=texto.replace(/\s+/g,"");
+  if(!texto) return {url:null,entry:null,count:0,reason:"ENTRADA_VACIA"};
+
+  const matches=[];
+  for(const img of indice){
+    const ts=img.tituloLimpio.replace(/\s+/g,"");
+    if(texto.includes(img.tituloLimpio) ||
+       img.tituloLimpio.includes(texto) ||
+       sin.includes(ts) ||
+       ts.includes(sin)){
+      matches.push(img);
+    }
+  }
+  if(!matches.length) return {url:null,entry:null,count:0,reason:"SIN_COINCIDENCIA"};
+  matches.sort((a,b)=>b.tituloLimpio.length-a.tituloLimpio.length);
+  return {url:matches[0].url,entry:matches[0],count:matches.length,reason:"OK"};
+}
+
+function csvEscape(v){
+  return '"'+String(v??"").replace(/"/g,'""')+'"';
+}
+
+async function checkImage(url){
+  if(!url) return "SIN_URL";
+  return await new Promise(resolve=>{
+    const img=new Image();
+    let done=false;
+    const finish=s=>{if(done)return;done=true;resolve(s)};
+    img.onload=()=>finish("IMAGEN_OK");
+    img.onerror=()=>finish("IMAGEN_ERROR");
+    setTimeout(()=>finish("TIMEOUT"),12000);
+    img.src=url;
+  });
+}
+
+document.getElementById("start").onclick=async()=>{
+  const start=document.getElementById("start");
+  start.disabled=true;
+  document.getElementById("estado").textContent="Cargando hoja y mapeo...";
+  const [sheetRes,mapRes]=await Promise.all([fetch(SHEET_URL),fetch(MAP_URL)]);
+  const sheet=await sheetRes.json();
+  const map=await mapRes.json();
+
+  const indice=Object.values(map).filter(e=>e&&e.imagen).map(e=>({
+    tituloLimpio:limpiar(e.titulo),
+    artista:e.artista||"",
+    titulo:e.titulo||"",
+    imagen:e.imagen||"",
+    url:e.url||"",
+  })).filter(e=>e.tituloLimpio.length>2);
+
+  resultados=[];
+  const total=sheet.length;
+  let done=0;
+
+  // Se comprueban en tandas para no saturar el navegador.
+  const batchSize=20;
+  for(let i=0;i<total;i+=batchSize){
+    const batch=sheet.slice(i,i+batchSize);
+    const out=await Promise.all(batch.map(async row=>{
+      const entrada=(row["Artista/Titulo"]||"").toString().trim();
+      const found=buscarImagen(entrada,indice);
+      const carga=await checkImage(found.url);
+      return {
+        fila:sheet.indexOf(row)+1,
+        entrada,
+        estado:carga,
+        coincidencias:found.count,
+        artista:found.entry?.artista||"",
+        titulo:found.entry?.titulo||"",
+        imagen:found.entry?.imagen||"",
+        url:found.url||"",
+        motivo:found.reason
+      };
+    }));
+    resultados.push(...out);
+    done+=batch.length;
+    document.getElementById("bar").style.width=(done/total*100)+"%";
+    document.getElementById("estado").textContent=`Comprobadas ${done} de ${total} canciones...`;
+  }
+
+  const counts={};
+  for(const r of resultados) counts[r.estado]=(counts[r.estado]||0)+1;
+  const noImg=resultados.filter(r=>r.estado!=="IMAGEN_OK");
+
+  document.getElementById("estado").textContent="Diagnóstico terminado.";
+  document.getElementById("resumen").innerHTML=
+    `<p><b>Total:</b> ${total} · <b>Imágenes OK:</b> ${counts.IMAGEN_OK||0} · `+
+    `<b>Imagen error:</b> ${counts.IMAGEN_ERROR||0} · <b>Sin coincidencia:</b> ${counts.SIN_URL||0} · `+
+    `<b>Timeout:</b> ${counts.TIMEOUT||0}</p>`+
+    `<p class="small">Las coincidencias múltiples no se consideran automáticamente error: se muestra cuántas encontró la lógica actual para poder revisar casos como Signal, Hikari, etc.</p>`;
+
+  let h="<table><thead><tr><th>Fila</th><th>Entrada</th><th>Estado</th><th>Coincidencias</th><th>Mapeo</th><th>Imagen</th></tr></thead><tbody>";
+  for(const r of noImg){
+    h+=`<tr class="${r.estado==="IMAGEN_OK"?"ok":"bad"}"><td>${r.fila}</td><td>${esc(r.entrada)}</td><td>${r.estado}</td><td>${r.coincidencias}</td><td>${esc(r.artista+" - "+r.titulo)}</td><td>${esc(r.imagen)}</td></tr>`;
+  }
+  h+="</tbody></table>";
+  document.getElementById("tabla").innerHTML=noImg.length?h:"<p class='ok'>No se han detectado imágenes con error.</p>";
+  document.getElementById("csv").disabled=false;
+};
+
+function esc(s){return String(s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));}
+
+document.getElementById("csv").onclick=()=>{
+  const head=["fila","entrada","estado","coincidencias","artista","titulo","imagen","url","motivo"];
+  const lines=[head.join(",")];
+  for(const r of resultados) lines.push(head.map(k=>csvEscape(r[k])).join(","));
+  const blob=new Blob(["\ufeff"+lines.join("\n")],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="diagnostico_caraturas_real.csv";
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+};
+</script>
+</body>
+</html>
