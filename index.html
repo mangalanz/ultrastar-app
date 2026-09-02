@@ -51,7 +51,43 @@
     box-shadow: 0 1px 4px rgba(0,0,0,0.06);
   }
   nav a:hover { border-color: var(--accent); }
-  .search-wrap { padding: 12px 16px; max-width:600px; margin:0 auto; }
+
+  /* Layout de dos columnas: buscador+lista a la izquierda, Kara-moe fijo a la derecha */
+  .layout {
+    display:grid;
+    grid-template-columns: 1fr 260px;
+    gap: 24px;
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 16px;
+    align-items: start;
+  }
+  .columna-principal { min-width: 0; }
+  .barra-lateral {
+    position: sticky;
+    top: 16px;
+    background: var(--card);
+    border: 1px solid #eee;
+    border-radius: 16px;
+    padding: 18px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+  }
+  .barra-lateral h2 {
+    font-size: 1rem; margin: 0 0 10px; color: var(--muted); font-weight:600;
+  }
+  .barra-lateral a {
+    display:block; text-align:center; margin-top:6px; padding:10px 16px;
+    background:var(--accent); color:#fff; text-decoration:none;
+    border-radius: 20px; font-weight:600; font-size:0.9rem;
+  }
+  /* En pantallas estrechas, la barra lateral pasa a ocupar todo el ancho y va después de la lista */
+  @media (max-width: 800px) {
+    .layout { grid-template-columns: 1fr; }
+    .barra-lateral { position: static; order: 2; }
+    .columna-principal { order: 1; }
+  }
+
+  .search-wrap { padding: 12px 0; }
   #buscador {
     width:100%; padding:12px 16px; border-radius:12px; border:1px solid #ddd;
     background:var(--card); color:var(--text); font-size:1rem;
@@ -59,7 +95,7 @@
   #estado { text-align:center; color:var(--muted); padding:8px; font-size:0.9rem; }
   #lista {
     display:grid; grid-template-columns:repeat(auto-fill, minmax(160px,1fr));
-    gap:14px; padding:16px; max-width:1000px; margin:0 auto;
+    gap:14px; padding:16px 0;
   }
   .cancion {
     background:var(--card); border-radius:12px; overflow:hidden; border:1px solid #eee;
@@ -93,27 +129,25 @@
   <a href="https://docs.google.com/forms/d/e/1FAIpQLScQ_J_FM6p9-1_INZMFJdtU5yuFMgauPFU9g65H2s_mIm9GKA/viewform" target="_blank" rel="noopener">Pedir Canción</a>
 </nav>
 
-<div class="search-wrap">
-  <input id="buscador" type="text" placeholder="Buscar por título, serie o artista...">
-  <select id="categoria" style="width:100%; margin-top:10px; padding:10px 14px; border-radius:12px;
-           border:1px solid #333; background:var(--card); color:var(--text); font-size:0.95rem;">
-    <option value="">Todas las categorías</option>
-  </select>
+<div class="layout">
+  <div class="columna-principal">
+    <div class="search-wrap">
+      <input id="buscador" type="text" placeholder="Buscar por título, serie o artista...">
+      <select id="categoria" style="width:100%; margin-top:10px; padding:10px 14px; border-radius:12px;
+               border:1px solid #333; background:var(--card); color:var(--text); font-size:0.95rem;">
+        <option value="">Todas las categorías</option>
+      </select>
+    </div>
+
+    <div id="estado">Cargando canciones...</div>
+    <div id="lista"></div>
+  </div>
+
+  <aside class="barra-lateral">
+    <h2>¿No encuentras tu canción?</h2>
+    <a href="https://kara.moe/search" target="_blank" rel="noopener">Buscar en Kara-moe →</a>
+  </aside>
 </div>
-
-<div id="estado">Cargando canciones...</div>
-<div id="lista"></div>
-
-<section id="kara-moe-section" style="max-width:900px; margin:32px auto; padding:0 16px; text-align:center;">
-  <h2 style="font-size:1.1rem; color:var(--muted); font-weight:500;">
-    ¿No encuentras tu canción?
-  </h2>
-  <a href="https://kara.moe/search" target="_blank" rel="noopener"
-     style="display:inline-block; margin-top:6px; padding:10px 20px; background:var(--card);
-            border:1px solid #333; border-radius:20px; color:var(--text); text-decoration:none;">
-    Buscar en Kara-moe →
-  </a>
-</section>
 
 </div><!-- /.contenido -->
 
@@ -125,10 +159,6 @@ const SHEET_ID = "1Mk8bEWzGt4gbt3t7FnbeDT4-ArI0L9tp1dyyQJU7IB8";
 const TAB_NAME = "Lista";
 // URL de tu mapeo.json (subido junto a las imágenes en R2, o en un repo GitHub con jsDelivr)
 const MAPEO_URL = "https://pub-6eaebff955624e44818a31fa86131835.r2.dev/ultrastar-im-genes/mapeo.json";
-// Carpeta base donde están las imágenes en R2 (mismo lugar que mapeo.json).
-// Cada entrada del mapeo solo trae el NOMBRE del archivo en "imagen",
-// así que la URL final se construye como IMG_BASE + nombre-del-archivo-codificado.
-const IMG_BASE = "https://pub-6eaebff955624e44818a31fa86131835.r2.dev/ultrastar-im-genes/";
 /* ===================================================== */
 
 const estadoEl = document.getElementById("estado");
@@ -156,6 +186,9 @@ function limpiar(txt) {
     .trim();
 }
 
+// Carpeta base donde están las imágenes en R2 (misma carpeta que mapeo.json)
+const IMG_BASE_URL = MAPEO_URL.substring(0, MAPEO_URL.lastIndexOf("/"));
+
 // Índice de imágenes ya "limpiadas" para buscar coincidencias por contención de texto
 let indiceImagenes = [];
 function construirIndiceImagenes() {
@@ -167,12 +200,10 @@ function construirIndiceImagenes() {
         tituloLimpio,
         tituloSinEspacios: tituloLimpio.replace(/\s+/g, ""),
         artistaLimpio: limpiar(e.artista),
-        // Construimos la URL real a partir del nombre de archivo,
-        // codificando espacios y símbolos especiales (á, ñ, ~, etc.)
-        url: IMG_BASE + encodeURIComponent(e.imagen)
+        url: `${IMG_BASE_URL}/${encodeURIComponent(e.imagen)}`
       };
     })
-    .filter(e => e.tituloLimpio.length > 2);
+    .filter(e => e.tituloLimpio.length > 0);
 }
 
 function buscarImagen(artistaTitulo) {
