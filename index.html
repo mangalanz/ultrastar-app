@@ -209,16 +209,13 @@ function construirIndiceImagenes() {
 function buscarImagen(artistaTitulo) {
   const texto = limpiar(artistaTitulo);
   if (!texto) return null;
-  // Coincidencia: el título de la imagen aparece dentro del texto de la fila,
-  // Y (si el artista es lo bastante largo para ser fiable) el artista también aparece.
-  // Esto evita falsos positivos entre canciones distintas que comparten un fragmento corto de texto.
+  // Coincidencia: el título de la imagen aparece dentro del texto de la fila, o viceversa
   let mejor = null;
   for (const img of indiceImagenes) {
-    const tituloCoincide = texto.includes(img.tituloLimpio) || img.tituloLimpio.includes(texto);
-    if (!tituloCoincide) continue;
-    const artistaCoincide = img.artistaLimpio.length < 3 || texto.includes(img.artistaLimpio);
-    if (!artistaCoincide) continue;
-    if (!mejor || img.tituloLimpio.length > mejor.tituloLimpio.length) mejor = img;
+    const coincide = texto.includes(img.tituloLimpio) || img.tituloLimpio.includes(texto);
+    if (coincide) {
+      if (!mejor || img.tituloLimpio.length > mejor.tituloLimpio.length) mejor = img;
+    }
   }
   return mejor ? mejor.url : null;
 }
